@@ -1,0 +1,57 @@
+#! /usr/bin/python
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+
+from optparse import OptionParser
+import os.path
+import codecs
+
+from Mozilla.Paths import EnumerateApp, EnumerateSourceTreeApp
+from Mozilla.Checks import getChecks
+from Mozilla.Parser import getParser, Entity
+from Mozilla import version
+
+usage = 'usage: %prog [options] l10n.ini'
+parser = OptionParser(usage = usage, version = "%%prog %s" % version)
+parser.add_option('--source-tree',
+                  dest='source_tree',
+                  help='''Use independent source repos like on hg.m.o''')
+
+(options, inis) = parser.parse_args()
+if len(inis) < 1:
+  parser.error('At least one l10n.ini required')
+
+emptyEnt = Entity('', lambda v: v,
+                  (0, 0), (0, 0), (0, 0), (0, 0), (0, 0), (0, 0), (0, 0))
+
+covered = set()
+for inipath in inis:
+  if options.source_tree:
+    app = EnumerateSourceTreeApp(inipath, options.source_tree, '.', [])
+  else:
+    app = EnumerateApp(inipath, '.', [])
+  for module, reference, locales in app:
+    if module in covered:
+      continue
+    covered.add(module)
+    print module
+    for ref_file in reference:
+      #print ref_file.module
+      checks = getChecks(ref_file)
+      if not checks:
+        continue
+      try:
+        p = getParser(ref_file.file)
+      except UserWarning:
+        # no comparison, XXX report?
+        continue
+      try:
+        p.readContents(ref_file.getContents())
+      except Exception, e:
+        print 'ERROR', ref_file, str(e)
+        continue
+      for refent in p:
+        for tp, pos, msg, cat in checks(refent, emptyEnt):
+          print codecs.utf_8_encode('%s\t%s\t%s\t%s\t%s\t%s' % (cat, tp, ref_file.module, ref_file.file, refent.key, refent.val))[0]
